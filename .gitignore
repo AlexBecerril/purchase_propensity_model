@@ -1,0 +1,22 @@
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+
+# Entornos virtuales
+.venv/
+venv/
+
+# Credenciales
+.env
+.env.*
+
+# Modelos entrenados
+*.pkl
+*.joblib
+*.gguf
+
+# Archivos temporales
+.DS_Store
