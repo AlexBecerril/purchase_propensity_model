@@ -1,0 +1,288 @@
+CONVERSION PROPENSITY API — DEPLOYMENT DOCUMENTATION
+IBM Z DATATHON 2026
+
+============================================================
+1. PROJECT OVERVIEW
+============================================================
+
+The Conversion Propensity API exposes a trained machine learning model through a REST API built with FastAPI.
+
+The model is a scikit-learn Pipeline containing a preprocessing stage and a Random Forest classifier. It receives customer engagement metrics and returns the predicted class and probability estimates for both classes.
+
+Infrastructure:
+- Platform: IBM LinuxONE Community Cloud
+- Operating System: Ubuntu 24.04.5 LTS
+- Architecture: s390x
+- API Framework: FastAPI
+- ASGI Server: Uvicorn
+- Model Artifact: model.pkl
+- API Port: 8000
+- JupyterLab Port: 38888
+
+============================================================
+2. PROJECT STRUCTURE
+============================================================
+
+The API project is located at:
+
+/home/linux1/conversion-api/
+
+Files:
+- main.py: FastAPI application
+- model.pkl: Serialized machine learning Pipeline
+- .venv/: Python virtual environment
+
+============================================================
+3. ENVIRONMENT SETUP
+============================================================
+
+Create the project directory:
+
+mkdir -p ~/conversion-api
+cd ~/conversion-api
+
+Install Python virtual environment support:
+
+sudo apt update
+sudo apt install -y python3-venv
+
+Create and activate the virtual environment:
+
+/usr/bin/python3 -m venv --system-site-packages .venv
+source .venv/bin/activate
+
+Install scientific Python dependencies through Ubuntu:
+
+sudo apt install -y python3-numpy python3-pandas python3-sklearn
+
+Install FastAPI, Uvicorn, and Joblib:
+
+python -m pip install fastapi uvicorn joblib
+
+Verify the dependencies:
+
+python -c "import numpy, pandas, sklearn, fastapi, uvicorn, joblib; print('All dependencies imported successfully')"
+
+============================================================
+4. MODEL TRANSFER
+============================================================
+
+The model was trained and serialized in JupyterLab using Joblib:
+
+import joblib
+joblib.dump(model, "random_forest_model.pkl")
+
+The original model was located at:
+
+/home/ibm-user/purchase_propensity_model/random_forest_model.pkl
+
+The model was copied to a shared directory accessible from the LinuxONE SSH environment, then copied into the API project.
+
+Commands executed in the LinuxONE SSH terminal:
+
+cp ~/shared/model.pkl ~/conversion-api/model.pkl
+chmod 600 ~/conversion-api/model.pkl
+
+Verify the model file:
+
+ls -lh ~/conversion-api/model.pkl
+
+The model artifact is approximately 13 MB.
+
+============================================================
+5. MODEL INSPECTION
+============================================================
+
+The model was loaded using Joblib:
+
+import joblib
+
+model = joblib.load("model.pkl")
+
+print("Model type:", type(model))
+print("Features:", model.feature_names_in_)
+print("Classes:", model.classes_)
+print("Pipeline steps:", model.named_steps.keys())
+
+The model is a scikit-learn Pipeline with two stages:
+
+- preprocessor
+- classifier
+
+The model expects the following 15 features:
+
+1. country
+2. city
+3. device_category
+4. browser
+5. first_user_default_channel_group
+6. sessions
+7. engaged_sessions
+8. bounce_rate
+9. average_session_duration
+10. views
+11. views_per_session
+12. events_per_session
+13. item_view_events
+14. add_to_carts
+15. checkouts
+
+The model classes are 0 and 1. Class 1 is interpreted as conversion, this matches the target encoding used during training.
+
+============================================================
+6. FASTAPI IMPLEMENTATION
+============================================================
+
+Create the application file:
+
+cd ~/conversion-api
+nano main.py
+
+The application exposes four main endpoints:
+
+GET /
+GET /health
+GET /model-info
+POST /predict
+
+The POST /predict endpoint validates the input features, executes the model, and returns the predicted class and probabilities for both classes.
+
+The response includes:
+
+- predicted_class
+- class_probabilities
+- conversion_probability
+- conversion_probability_percent
+
+The conversion probability is returned as both a decimal between 0 and 1 and a percentage between 0 and 100.
+
+============================================================
+7. STARTING THE API
+============================================================
+
+Activate the virtual environment:
+
+cd ~/conversion-api
+source .venv/bin/activate
+
+Start FastAPI with Uvicorn:
+
+uvicorn main:app --host 127.0.0.1 --port 8000
+
+This configuration allows local requests from the server.
+
+For network access, stop the process with Ctrl+C and restart it using:
+
+uvicorn main:app --host 0.0.0.0 --port 8000
+
+The 0.0.0.0 binding allows Uvicorn to listen on the server's network interfaces.
+
+Keep the terminal open while the service is running.
+
+============================================================
+8. API ENDPOINTS
+============================================================
+
+API root:
+http://148.100.108.224:8000/
+
+Health check:
+http://148.100.108.224:8000/health
+
+Model information:
+http://148.100.108.224:8000/model-info
+
+Prediction endpoint:
+http://148.100.108.224:8000/predict
+
+Interactive API documentation:
+http://148.100.108.224:8000/docs
+
+OpenAPI schema:
+http://148.100.108.224:8000/openapi.json
+
+These public URLs work only if Uvicorn is running, the host firewall allows port 8000, and the cloud network configuration permits inbound traffic.
+
+============================================================
+9. FIREWALL CONFIGURATION
+============================================================
+
+The existing Linux firewall allowed inbound traffic on port 38888 for JupyterLab but did not have a dedicated rule for port 8000.
+
+The following command inserts a rule to allow inbound TCP connections on port 8000:
+
+sudo iptables -I INPUT 1 -p tcp --dport 8000 -j ACCEPT
+
+Verify the firewall configuration:
+
+sudo iptables -L INPUT -n --line-numbers
+
+The new ACCEPT rule should appear before the REJECT rule.
+
+============================================================
+10. TESTING THE API
+============================================================
+
+Health check:
+
+curl http://148.100.108.224:8000/health
+
+Expected response:
+
+{"status":"ok","model_loaded":true}
+
+Inspect model metadata:
+
+curl -s hhttp://148.100.108.224:8000/model-info
+
+Test a prediction:
+
+curl -X POST http://148.100.108.224:8000/predict 
+  -H "Content-Type: application/json" 
+  -d '{
+    "features": {
+      "country": "Mexico",
+      "city": "Chihuahua",
+      "device_category": "desktop",
+      "browser": "Chrome",
+      "first_user_default_channel_group": "Organic Search",
+      "sessions": 1,
+      "engaged_sessions": 1,
+      "bounce_rate": 0.0,
+      "average_session_duration": 60.0,
+      "views": 3,
+      "views_per_session": 3.0,
+      "events_per_session": 5.0,
+      "item_view_events": 1,
+      "add_to_carts": 0,
+      "checkouts": 0
+    }
+  }'
+
+The response returns the predicted class and probability estimates for classes 0 and 1.
+
+The example input is synthetic and is intended only for demonstration purposes.
+
+============================================================
+12. SECURITY AND PRODUCTION CONSIDERATIONS
+============================================================
+
+The current deployment is a prototype intended for datathon demonstration.
+
+============================================================
+13. CURRENT STATUS
+============================================================
+
+Completed:
+- Python environment configured on LinuxONE.
+- Required Python libraries imported successfully.
+- Trained model transferred to the API project.
+- Model loaded through Joblib.
+- FastAPI application implemented.
+- Prediction endpoint tested successfully from the LinuxONE terminal.
+- Probability estimates for both classes verified.
+- Swagger UI tested successfully.
+- Firewall rule added for TCP port 8000.
+- Confirmed reachability from another machine.
+
+END OF DOCUMENTATION
